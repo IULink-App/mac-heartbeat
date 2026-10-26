@@ -5,6 +5,8 @@ name: Mac mini watch
 on:
   schedule: [{ cron: "*/10 * * * *" }]
   workflow_dispatch:
+    inputs:
+      test: { description: "Send a test Telegram message only", type: boolean, default: false }
 permissions: { issues: write }
 concurrency: { group: watch }
 jobs:
@@ -24,6 +26,7 @@ jobs:
           open=$(gh issue list -R "$REPO" --label offline --state open --json number --jq '.[0].number // empty')
           tg() { [ -n "$TG" ] && curl -s -o /dev/null -X POST "https://api.telegram.org/bot$TG/sendMessage" -d chat_id="$OWNER" --data-urlencode text="$1"; }
           echo "last heartbeat: $last ($mins min ago)"
+          if [ "${{ inputs.test }}" = "true" ]; then tg "🧪 Mac mini watch test — alerts work. Last heartbeat $mins min ago."; exit 0; fi
           if [ "$age" -gt 1200 ]; then
             if [ -z "$open" ]; then
               gh label create offline -R "$REPO" --color B60205 2>/dev/null || true
