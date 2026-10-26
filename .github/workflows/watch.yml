@@ -1,0 +1,36 @@
+# Dead-man switch for Ian's Mac mini (2026-10-26). The Mac sets the HEARTBEAT repo variable every 5 minutes
+# (ai-tools/heartbeat). Every 10 minutes this checks it: silent for 20+ min → one Telegram alert + an open issue;
+# back → "back online" + the issue closes. Public repo only so Actions minutes are free; nothing private lives here.
+name: Mac mini watch
+on:
+  schedule: [{ cron: "*/10 * * * *" }]
+  workflow_dispatch:
+permissions: { issues: write }
+concurrency: { group: watch }
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          HB: ${{ vars.HEARTBEAT }}
+          TG: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          OWNER: ${{ secrets.TELEGRAM_OWNER_ID }}
+        run: |
+          now=$(date +%s); age=$(( now - ${HB:-0} )); mins=$(( age / 60 ))
+          last=$(TZ=Europe/Chisinau date -d "@${HB:-0}" '+%H:%M %d %b' 2>/dev/null || echo never)
+          open=$(gh issue list -R "$REPO" --label offline --state open --json number --jq '.[0].number // empty')
+          tg() { [ -n "$TG" ] && curl -s -o /dev/null -X POST "https://api.telegram.org/bot$TG/sendMessage" -d chat_id="$OWNER" --data-urlencode text="$1"; }
+          echo "last heartbeat: $last ($mins min ago)"
+          if [ "$age" -gt 1200 ]; then
+            if [ -z "$open" ]; then
+              gh label create offline -R "$REPO" --color B60205 2>/dev/null || true
+              gh issue create -R "$REPO" --label offline --title "Mac mini offline since $last" --body "No heartbeat for $mins min. Check power, internet, or the FileVault login screen after a restart."
+              tg "⚠️ Mac mini offline — no heartbeat for $mins min (last $last Chisinau). Power, internet, or FileVault login after a restart?"
+            fi
+          elif [ -n "$open" ]; then
+            gh issue close "$open" -R "$REPO" --comment "Back online (heartbeat $mins min ago)."
+            tg "✅ Mac mini back online."
+          fi
